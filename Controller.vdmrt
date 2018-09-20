@@ -1,0 +1,508 @@
+class Controller
+
+types
+Modes = <TAKE_OFF> | <RETURN_TO_BASE> | <FLY> | <INITIALIZATION>;
+public Coordinates = seq of seq of real;
+
+instance variables
+id : nat1;				--unique id number of uav
+RollAng : real := 0.2;
+CarlAngleTemp : real := 0.2;
+ThrottleHigh : real := 0.51;--0.63
+ThrottleLow : real := 0.37;
+
+throttleIpart : real := 0;
+throttlePpart : real := 0;
+throttleDpart : real := 0;
+
+xIpart : real := 0;
+xPpart : real := 0;
+xDpart : real := 0;
+desiredPitch : real := 0;
+
+yIpart : real := 0;
+yPpart : real := 0;
+yDpart : real := 0;
+desiredRoll : real := 0;
+
+--desired target point
+tarX : real;
+tarY : real;
+tarZ : real;
+
+--objects
+posX : Input; --current position
+posY : Input;
+posZ : Input;
+velX : Input;
+velY : Input;
+velZ : Input;
+yaw : Input;
+Battery : Input;
+
+pitchOut : Output;
+rollOut : Output;
+yawOut : Output;
+throttleOut : Output;
+
+--waypoint generator variables
+
+--environment : Environment;
+--SearchArea : Coordinates;
+waypoints : Coordinates:=[];
+waypointsCount : Coordinates:=[];
+reverseWaypoints : Coordinates:=[];
+--desiredAltitude : real := 20;
+desiredAltitude : real := System`hwi.dAltitude.getValue();
+
+Xstart : real;
+Ystart : real;
+Zstart : real;
+--cameras capabilities
+--xCamWidth : real := 10;
+--yCamWidth : real := 10;
+xCamWidth : real := System`hwi.xCam.getValue();
+yCamWidth : real := System`hwi.yCam.getValue();
+
+xMax : real;
+xMin : real;
+yMax : real;
+yMin : real;
+i : real;
+j : real;
+index : int := 1;
+iteration : int :=1;
+initializationIndex : int := 0;
+mode : Modes;
+
+--The following variables help to calculate distance covered and battery life
+TotalBattery : real;
+distanceCovered : real := 0;
+p1 : seq of real;-- p1 and p2 keeps record of coordinates, helping to calculate the distance covered
+p2 : seq of real;
+metre : real;
+
+-- obstacle avoidance
+y : real;
+public m : real;	--o sintelestis diefthinsis slope
+public point1 : seq of real;
+public point2 : seq of real;
+public path : Coordinates := [];
+public subtractionX : real;
+public subtractionY : real;
+public obstacles : Coordinates := [[System`hwi.obstacleX.getValue(),System`hwi.obstacleY.getValue(),System`hwi.obstacleZ.getValue()],
+																	 [System`hwi.obstacle2X.getValue(),System`hwi.obstacle2Y.getValue(),System`hwi.obstacle2Z.getValue()],
+																	 [System`hwi.obstacle3X.getValue(),System`hwi.obstacle3Y.getValue(),System`hwi.obstacle3Z.getValue()]];
+public indexPath : real;
+public vima : real;
+public yVariable : real;
+public xVariable : real;
+public radious : real := 2;
+public flagObstacle : bool := true;
+addedFlag : bool := false;
+
+operations
+
+--MAIN CONTROL LOOP
+public Step : () ==> ()
+Step()==
+(	--if iteration=1 then ( GenerateWaypoints(); iteration := 2);		--the first time the waypoints will be generated
+	
+	if mode = <INITIALIZATION> --This mode is required due to the fact that INTO-CPS's original values are ZEROS. We allow 2 iterations before initialize the variables
+	then (if initializationIndex>1
+		 then (Xstart := posX.GetValue();
+		 	   Ystart := posY.GetValue();
+		 	   Zstart := 0;--posZ.GetValue(); -- initial altitude is 0.5, however the battery can be charged when the altitude is lower than 0.1, hence the original altitude is set 0
+		 	   GenerateWaypoints();
+		 );
+		 initializationIndex := initializationIndex + 1;--the UAV is forced to stay at its position as far as the INITIALIZATION mode is active.
+		 tarX := posX.GetValue();
+		 tarY := posY.GetValue();
+		 tarZ := posZ.GetValue();
+	)
+	else if mode = <RETURN_TO_BASE> 
+	then ( tarX := Xstart; tarY := Ystart; tarZ := desiredAltitude; 
+				if (posX.GetValue() > tarX - 0.3 and posX.GetValue() < tarX + 0.3) and   --Battery's location is placed at the point 5,5,0
+				   (posY.GetValue() > tarY - 0.3 and posY.GetValue() < tarY + 0.3) then tarZ := Zstart) -- to Avoid collisions the UAV will land when it has reached the base
+	else if mode = <TAKE_OFF> 
+	then (tarX := posX.GetValue(); tarY := posY.GetValue();  tarZ := desiredAltitude;)
+	else if mode = <FLY> then (
+	--here the avoidance will be placed --if index=0 then set new waypoint and index:=1 else skip, it will keep the same waypoint as before, if the waypoint has been erached set index :=0 again
+	--ean den iparxi obstacle tha beni edo, allios epomeno waypoint tha orizetai to avoidance
+	if flagObstacle = true
+	then (	point1 := [posX.GetValue(),posY.GetValue(),posZ.GetValue()];
+			point2 := hd waypoints;
+			
+			subtractionX := point2(1) - point1(1);
+			subtractionY := point2(2) - point1(2);
+			path := [];
+			if subtractionX <> 0 and subtractionY <> 0
+			then ( path := FindSlopingLine(point1,point2,subtractionX,subtractionY);
+					)
+			elseif subtractionX = 0 and subtractionY <> 0
+			then ( path := FindVerticalLine(point1,point2);
+					 )
+			elseif subtractionX <> 0 and subtractionY = 0
+			then ( path := FindHorizontalLine(point1,point2);
+					 );
+					 
+			for wi = 1 to len path do
+				( if addedFlag = false then(
+				 for wj = 1 to len obstacles do
+				( if GetDistance2(path(wi),obstacles(wj)) < radious
+				  then ( if obstacles(wj)(3) < desiredAltitude --it flies over the obstacle
+				  		 then (waypoints := [[path(wi)(1), path(wi)(2), path(wi)(3) + 4]]^waypoints; addedFlag := true)
+				  		 else if abs(waypoints(1)(2) - point1(2)) < 0.5 --if horizontal
+				  		 then( if obstacles(wj)(2) <= path(wi)(2) 
+				  		 	   then (waypoints := [[obstacles(wj)(1), obstacles(wj)(2) + radious,desiredAltitude]]^waypoints;addedFlag := true;)
+				  			   else waypoints := [[obstacles(wj)(1),obstacles(wj)(2) - radious,desiredAltitude]]^waypoints;
+				  			   addedFlag := true;
+				  			)
+				  		 else if abs(waypoints(1)(1) - point1(1)) < 0.5
+				  		 then( if obstacles(wj)(1) >= path(wj)(1)
+				  		 	   then (waypoints := [[obstacles(wj)(1) - radious,obstacles(wj)(2),desiredAltitude]]^waypoints;addedFlag := true;)
+				  		 	   else waypoints := [[obstacles(wj)(1) + radious,obstacles(wj)(2),desiredAltitude]]^waypoints;
+				  		 	   addedFlag := true;
+				  		 	  )
+				  		 else if (point1(1) < waypoints(1)(1) and point1(2) < waypoints(1)(2)) or (point1(1) > waypoints(1)(1) and point1(2) > waypoints(1)(2))
+				  		 then( waypoints := [[obstacles(wj)(1) - radious,obstacles(wj)(2) + radious,desiredAltitude]]^waypoints;
+				  		 	addedFlag := true;
+				  		 	)
+				  		 else if (point1(1) < waypoints(1)(1) and point1(2) > waypoints(1)(2)) or (point1(1) > waypoints(1)(1) and point1(2) < waypoints(1)(2))
+				  		 then (waypoints := [[obstacles(wj)(1) + radious,obstacles(wj)(2) + radious,desiredAltitude]]^waypoints;
+				  		 		addedFlag := true;
+				  		 	)
+				);
+			);
+	)
+	);
+	flagObstacle := false;
+	);
+	tarX := waypoints(1)(1);							--the head of waypoints is the first waypoint
+	tarY := waypoints(1)(2);							
+	tarZ := waypoints(1)(3);
+		if ((posX.GetValue() > tarX - 0.4 and posX.GetValue() < tarX + 0.4)  and 	-- if a waypoint has been reached between a certain values then it is deleted and the next waypoint takes place
+			 (posY.GetValue() > tarY - 0.4 and posY.GetValue() < tarY + 0.4) and 
+			  (posZ.GetValue() > tarZ - 1 and posZ.GetValue() < tarZ + 1))
+		then (waypoints := tl waypoints; flagObstacle := true;addedFlag := false;)
+	);
+	
+	--Summarizes the distance covered by the UAV
+	p1 := [p2(1),p2(2),p2(3)];
+	p2 := [posX.GetValue(),posY.GetValue(),posZ.GetValue()];
+	distanceCovered := distanceCovered + GetDistance2(p1,p2);
+	
+	--Calls the operation SetMode to set the current mode depending of the battery and the waypoints
+	SetMode();-- when the uav reaches the last waypoint, it will be deleted and the setMode() will set the mode as returntobase
+	
+	-- The operation MoveX does not accept 0 as input
+	if tarX = 0 then tarX := 0.01; 
+	
+	MoveX(tarX); -- 
+	setPitch();
+	SetAltitude(tarZ);
+	
+);
+
+--constructor for Controller
+public Controller : Input*Input*Input*Input*Input*Input*Input*Input*Output*Output*Output*Output ==> Controller 
+Controller(PosX,PosY,PosZ,VelX,VelY,VelZ,Yaw,b,Pitchout,Rollout,Yawout,Throttleout)==
+(	Battery := b;	--is input showing the remaining battery
+	TotalBattery := Battery.GetValue(); --stores the maximum battery value
+	id := System`hwi.idNum.getValue();	--this value can be set through INTO-CPS
+	posX := PosX;
+	posY := PosY;
+	posZ := PosZ;
+	velX := VelX;
+	velY := VelY;
+	velZ := VelZ;
+	yaw := Yaw;
+	pitchOut := Pitchout;
+	rollOut := Rollout;
+	yawOut := Yawout;
+	throttleOut := Throttleout;
+	--waypointgenerator variables
+		
+	--Xstart := 5;--posX.GetValue(); 5,5,0 is the position of the recharger, which differs from the initial position
+	--Ystart := 5; --posY.GetValue();
+	--Zstart := 0;--posZ.GetValue();
+	--tarX := Xstart;
+	--tarY := Ystart;
+	--tarZ := Zstart;
+	
+	--SearchArea := [[System`hwi.xmin.getValue(),System`hwi.ymin.getValue()],[System`hwi.xmax.getValue(),System`hwi.ymax.getValue()]];--SSEARCHING AREA CAN BE CHANGED VIA INTO-CPS
+	xMax := System`hwi.xmax.getValue();--FindMax(SearchArea(1)(1), SearchArea(2)(1));
+	xMin := System`hwi.xmin.getValue();--FindMin(SearchArea(1)(1), SearchArea(2)(1));
+	yMax := System`hwi.ymax.getValue();--FindMax(SearchArea(1)(2), SearchArea(2)(2));
+	yMin := System`hwi.ymin.getValue();--FindMin(SearchArea(1)(2), SearchArea(2)(2));
+	i := xMin + (xCamWidth/2) - xCamWidth * 0.05;--scans 5% out of the cameras capabilities due to the fact that the drones cannot reach the exactly position of the waypoints
+	j := yMin + (yCamWidth/2) - yCamWidth * 0.05;--these variables are the left lower point of the rectangular area
+	mode := <INITIALIZATION>;
+	p1 := [posX.GetValue(), posY.GetValue(), posZ.GetValue()];-- two points to keep coordinates helping calculating the distance covered.
+	p2 := [posX.GetValue(), posY.GetValue(), posZ.GetValue()];
+);
+--Waypoint generator
+public GenerateWaypoints: () ==> ()
+GenerateWaypoints()==
+(	
+if ((xMax - xMin) >= (yMax - yMin))	then(
+	while j <= (yMax + (yCamWidth/2) - yCamWidth*0.05) do	-- it could be yMax + 5
+	(	while i <= (xMax + (xCamWidth/2) - xCamWidth*0.05) do
+		(	if i <= xMax and j <= yMax
+			then waypointsCount := waypointsCount^[[i,j,desiredAltitude]]--we can define areas where the altitude would be greater for some reason (e.g. mounatinous area)
+			else if i >= xMax and j <= yMax
+			then waypointsCount := waypointsCount^[[xMax,j,desiredAltitude]]
+			else if i <= xMax and j >= yMax
+			then waypointsCount := waypointsCount^[[i,yMax,desiredAltitude]]
+			else if i >= xMax and j >= yMax
+			then waypointsCount := waypointsCount^[[xMax,yMax,desiredAltitude]];
+			i := i + xCamWidth - xCamWidth * 0.05;	-- 5% overlaps
+		);
+		i := xMin + (xCamWidth/2) - xCamWidth * 0.05;
+		j := j + yCamWidth - yCamWidth * 0.05;
+		if index mod 2 =1 then (waypoints := waypoints^waypointsCount)
+		else (reverseWaypoints := reverse waypointsCount;
+				waypoints := waypoints^reverseWaypoints;
+			);
+		index := index + 1;
+		waypointsCount := [];
+	);
+)
+else (	while i <= (xMax + (xCamWidth/2) - xCamWidth*0.05) do
+		(	while j <= (yMax + (yCamWidth/2) - yCamWidth*0.05) do
+			(	if j <= yMax and i <= xMax
+				then waypointsCount := waypointsCount^[[i,j,desiredAltitude]]
+				else if j >= yMax and i <= xMax
+				then waypointsCount := waypointsCount^[[i,yMax,desiredAltitude]]
+				else if j <= yMax and i >= xMax
+				then waypointsCount := waypointsCount^[[xMax,j,desiredAltitude]]
+				else if j >= yMax and i >= xMax
+				then waypointsCount := waypointsCount^[[xMax,yMax,desiredAltitude]];
+				
+				j := j + yCamWidth - yCamWidth * 0.05;	
+			);
+			j := yMin + (yCamWidth/2) - yCamWidth * 0.05;
+			i := i + xCamWidth - xCamWidth * 0.05;	-- 5% overlaps
+			if index mod 2 =1 then (waypoints := waypoints^waypointsCount)
+			else (reverseWaypoints := reverse waypointsCount;
+				waypoints := waypoints^reverseWaypoints;
+			);
+			index := index + 1;
+			waypointsCount := [];
+		)
+	);
+);	
+--given two point where x2-x1 <> 0 and y2 - y1 <> 0 the operation returns the points between them with step 0.01
+public FindSlopingLine : seq of real*seq of real*real*real ==> Coordinates
+FindSlopingLine(pp1,pp2,dx,dy)==
+	( m := (pp2(2) - pp1(2))/(pp2(1) - pp1(1));
+		if abs(dx) >= abs(dy)
+	  then(	indexPath := pp1(1);
+	  			if pp1(1) < pp2(1)
+	  			then ( vima := 0.01;
+	  						 while indexPath <= pp2(1) do
+	  				 		(		yVariable := m*(indexPath - pp1(1)) + pp1(2);
+	  				 				path := path^[[indexPath,yVariable,desiredAltitude]];
+	  			 					indexPath := indexPath + vima;
+	  			 	 		);
+	  			 		--path := path^[pp2];  -- it is to correct the last point due to VDM's bad calculations
+								)
+					else	( vima := -0.01;
+									while indexPath >= pp2(1) do
+									(	y := m*(indexPath - pp1(1)) + pp1(2);
+										path := path^[[indexPath,y,desiredAltitude]];
+										indexPath := indexPath + vima;
+								);
+							--path := path^[pp2];
+								);
+				)
+		else ( indexPath := pp1(2);
+					 if pp1(2) < pp2(2)
+					 then(	vima := 0.01;
+					 				while indexPath <= pp2(2) do
+					 				(	xVariable := (indexPath - pp1(2) + m*pp1(1))/m;
+					 					path := path^[[xVariable,indexPath,desiredAltitude]];
+					 					indexPath := indexPath + vima;
+					 				);
+					 			)
+					 	else(	vima := -0.01;
+					 				while indexPath >= pp2(2) do
+					 				(	xVariable := (indexPath - pp1(2) + m*pp1(1))/m;
+					 					path := path^[[xVariable,indexPath,desiredAltitude]];
+					 					indexPath := indexPath + vima;
+					 				);
+					 			);
+					 );	
+		
+		return path
+		);
+--given two points where x2-x1 = 0 and y2-y1 <> 0 the expected line between them is vertical
+public FindVerticalLine : seq of real*seq of real ==> Coordinates
+FindVerticalLine(pp1,pp2)==
+	(	indexPath := pp1(2);
+		if pp1(2) < pp2(2)
+		then ( vima := 0.01;
+					 while indexPath <= pp2(2) do
+					 (	path := path^[[pp1(1),indexPath,desiredAltitude]];
+					 		indexPath := indexPath + vima;
+					 	);
+					 	--path := path^[pp2];
+					)
+		else	(	vima := -0.01;
+						while indexPath >= pp2(2) do
+						(	path := path^[[pp1(1),indexPath,desiredAltitude]];
+						indexPath := indexPath + vima;
+						);
+						--path := path^[pp2];
+					);
+		return path
+	);
+-- give two points where x2-x2<>0 and y2-y1=0 an horizontial line exists that connects the two points
+public FindHorizontalLine: seq of real*seq of real ==> Coordinates
+FindHorizontalLine(pp1,pp2)==
+	(	indexPath := pp1(1);
+		if pp1(1) < pp2(1)
+		then ( vima := 0.01;
+					 while indexPath <= pp2(1) do
+					 (	path := path^[[indexPath,pp1(2),desiredAltitude]];
+					 		indexPath := indexPath + vima;
+					 	);
+					 	--path := path^[pp2];
+					 )
+		else	(	vima := -0.01;
+						while indexPath >= pp2(1) do
+						(	path := path^[[indexPath,pp1(2),desiredAltitude]];
+							indexPath := indexPath + vima;
+						);
+						--path := path^[pp2];
+					);
+		return path;
+	);
+-- calculates the roll which is responsible for X-position
+public MoveX: real ==> ()
+	MoveX(x) == (
+		if x <> 0.0 then
+			if x - posX.GetValue()  < x*0.01 then 
+				RollAng := CarlAngleTemp; --3.1;
+		if x <> 0.0 then
+			if x > posX.GetValue() then
+				if velX.GetValue() < abs(posX.GetValue()-x)+0.01 then 
+					rollOut.SetValue(CarlAngleTemp)--(RollAng)
+				else if posX.GetValue() > (x) or velX.GetValue() > (posX.GetValue()-x)  then 
+					rollOut.SetValue(-CarlAngleTemp) 
+				else rollOut.SetValue(CarlAngleTemp)
+    	else if velX.GetValue() > (x - posX.GetValue())+0.01 then 
+    		rollOut.SetValue(-CarlAngleTemp)
+		else if posX.GetValue() < (x) or velX.GetValue() < (x - posX.GetValue())  then 
+			rollOut.SetValue(CarlAngleTemp)
+		else rollOut.SetValue(-CarlAngleTemp);
+	);
+
+public setPitch: () ==>  ()
+	setPitch() == (
+		--yIpart := yIpart + ((posY.GetValue()-targetY) * 0.00); 
+    yPpart := ( posY.GetValue()- tarY) * 0.28;
+    yDpart := velY.GetValue() * -0.2;
+    desiredPitch := yIpart + yPpart - yDpart;
+    if desiredPitch > 0.35 then
+    	desiredPitch := 0.35;
+    if desiredPitch < -0.35 then
+    	desiredPitch := -0.35;
+ 		pitchOut.SetValue(desiredPitch)
+	);
+
+public SetAltitude: real ==> ()
+	SetAltitude(altitude) ==(
+		if altitude > posZ.GetValue() then
+			if velZ.GetValue() < abs(posZ.GetValue()-altitude)+0.025 then 
+				Upwards(ThrottleHigh)
+			else if posZ.GetValue() > (altitude) or velZ.GetValue() > (posZ.GetValue()-altitude) then 
+				Upwards(ThrottleLow) 
+			else Upwards(ThrottleHigh)
+    	else if velZ.GetValue() > (altitude - posZ.GetValue())+0.025 then 
+    		Upwards(ThrottleLow)
+			else if posZ.GetValue() < (altitude) or velZ.GetValue() < (altitude - posZ.GetValue())  
+			then Upwards(ThrottleHigh) 
+			else Upwards(ThrottleLow);
+);
+public Upwards: real ==> ()
+	Upwards(throttle) == (
+    throttleOut.SetValue(throttle);
+	);
+
+
+--SETS THE MODE
+public SetMode: () ==> ()
+SetMode()==
+	(										 --The very few seconds, the UAV will gain high without moving in order to avoid collisions		--distanceFromBase works well
+	metre := distanceCovered/ (6500 - Battery.GetValue());	--calculates the average consumption per Battery unit																				--BatteryValue works, else if works
+	if initializationIndex <= 2 then mode := <INITIALIZATION>
+	else if ((time > 100E9) and ((metre * Battery.GetValue() - 500)< distanceFromBase())) or waypoints = [] then mode := <RETURN_TO_BASE>	--works perfectly, without constants							--totalBattery does not work/ replaced by 6500
+	--if ((time > 100E9) and (metre * Battery.GetValue()< distanceFromBase() or Battery.GetValue() < 1100)) or waypoints = [] then mode := <RETURN_TO_BASE>	-- it works perfectly
+	--if Battery.GetValue() < 3500 or waypoints = [] then mode := <RETURN_TO_BASE>	--works perfect, but the limit is constant
+	--if 6500 - Battery.GetValue() > 2000 or waypoints = [] then mode := <RETURN_TO_BASE>
+	else if Battery.GetValue() > 6000 and waypoints <> [] then 	(if posZ.GetValue() < 15 then mode := <TAKE_OFF> --Vertical take off to avoid collisions
+																 else	mode := <FLY>)
+	else skip;
+	
+	);
+
+
+
+
+--Calculates the distance between the current position and the base
+public distanceFromBase: () ==> real
+distanceFromBase()==
+(	return squareRoot(square(posX.GetValue() - Xstart) + square(posY.GetValue() - Ystart) + square(posZ.GetValue() - Zstart))
+);
+
+--Calculates the distance between two points in 3D
+public GetDistance2: seq of real * seq of real ==> real
+GetDistance2(s1,s2)==
+(	return squareRoot(square(s1(1) - s2(1)) + square(s1(2) - s2(2)) + square(s1(3) - s2(3))));
+
+-- Operation using Newton's iteration to calculate the square root of a number
+public squareRoot: real ==> real
+squareRoot(n)==
+(	if n = 0 then return 0
+	else(
+	dcl x:real := 1, nextx: real := n;
+	while abs (x - nextx) >= 0.05*x do
+	(	x := nextx;
+		nextx := ((n/x) + x) / 2;
+	);
+	return nextx)
+);
+--Returns the n^2
+public square: real ==> real
+square(n)==
+(return n*n);
+
+
+
+
+
+
+
+functions
+-- The function finds the maximum number between two real numbers
+public FindMax : real * real -> real
+FindMax(x1,x2)==
+	( if x1>x2 then x1
+	  else x2);
+-- The function finds the minimum number between two real numbers
+public FindMin : real * real -> real
+FindMin(x1,x2)==
+	( if x1<x2 then x1
+	  else x2);
+-- Checks whether the waypoints has finished
+public Finish : Coordinates -> bool
+Finish(w)==
+if (len w = 0) then true
+else false;
+
+
+
+
+
+end Controller

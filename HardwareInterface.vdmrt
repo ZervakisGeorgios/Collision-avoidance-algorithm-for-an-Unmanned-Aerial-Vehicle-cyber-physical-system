@@ -1,0 +1,100 @@
+--##	EXPORT	44d42717b29e3e0e4c2dc324aae0b023cb94c4da	UAV_Collision_AvoidanceTEST.fmu	2017-07-08 19:19:07	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	8965df0bc64f43266671278c8afb250a85e83c0c	UAV_Collision_Avoidance.fmu	2017-31-07 18:43:58	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	8fcf48bbecf31496fb6abdcd9b85268fc76945ef	UAV_Collision_Avoidance.fmu	2017-13-07 17:18:14	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	ecbb5188349c08d3499e7946eeb59c7386f6a2c5	UAV_Collision_Avoidance.fmu	2017-13-07 17:17:19	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	1dec619b27d2d834c418b1b153d154b3fc096b8	UAV_Collision_Avoidance.fmu	2017-13-07 16:17:34	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	81e2eda0f1fd7336e820b1e8543e572edf69f83d	UAV_Collision_Avoidance.fmu	2017-13-07 16:06:11	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	f12363979cfe3b59f277260a5c58c93cf4bcace5	UAVControllerAttemptWwayGenerator.fmu	2017-12-07 13:52:07	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	a9c15c22d7f19e1a354566517933bc48d37366aa	UAVControllerAttemptWwayGenerator.fmu	2017-24-06 20:36:44	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	924c2e7aac543d5bd1756b7342c3cc166d721c1d	UAVControllerAttemptWwayGenerator.fmu	2017-21-06 17:06:22	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	3bab3c7028b03d3afa9e746161f1f48a8c1366a3	UAVControllerAttemptWwayGenerator.fmu	2017-21-06 13:21:28	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	35964f4d3609647313c55183a9316d5f9973ecd	UAVControllerAttemptWwayGenerator.fmu	2017-21-06 13:17:35	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	f9e6f083c99fb25e13394dcc937a87b4268d0d09	UAVControllerAttemptWwayGenerator.fmu	2017-20-06 20:49:54	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	326624aa38b22c7d1b4d2b3f004155ee1407ce72	UAVControllerAttemptWwayGenerator.fmu	2017-20-06 20:39:40	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	5374f67215418e5d3375270362f701b63929c8f9	UAVControllerAttemptWwayGenerator.fmu	2017-20-06 20:26:51	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+--##	EXPORT	40e2dc944062020c7799a41c4951e12748d60be2	UAVControllerAttemptWwayGenerator.fmu	2017-18-06 19:50:35	tool-wrapper	{"name":"fmu-import-export","version":"0.2.4"}
+
+class HardwareInterface
+
+-- INPUT VARIABLES
+instance variables
+    
+    
+  -- @ interface: type = input, name="posXIn";
+  public posXIn : RealPort := new RealPort(0.0);
+  
+  -- @ interface: type = input, name="posYIn";
+  public posYIn : RealPort := new RealPort(0.0);
+    
+  -- @ interface: type = input, name="posZIn";
+  public posZIn : RealPort := new RealPort(0.0);
+  
+  -- @ interface: type = input, name="yawIn";
+  public yawIn : RealPort := new RealPort(0.0);
+    
+  -- @ interface: type = input, name="velXIn";
+  public velXIn : RealPort := new RealPort(0.0);
+  
+  -- @ interface: type = input, name="velYIn";
+  public velYIn : RealPort := new RealPort(0.0);
+    
+  -- @ interface: type = input, name="velZIn";
+  public velZIn : RealPort := new RealPort(0.0);
+  
+  -- @ interface: type = input, name="batteryChargeIn";
+  public batteryChargeIn : RealPort := new RealPort(0.0);
+  
+-- OUTPUT VARIABLES
+instance variables
+
+  -- @ interface: type = output, name="pitchOut";
+  public pitchOut : RealPort := new RealPort(0.0);
+ 
+  -- @ interface: type = output, name="rollOut";
+  public rollOut : RealPort := new RealPort(0.0);
+
+  -- @ interface: type = output, name="yawOut";
+  public yawOut : RealPort := new RealPort(0.0);
+ 
+  -- @ interface: type = output, name="throttleOut";
+  public throttleOut : RealPort := new RealPort(0.0);
+  
+values
+
+	-- @ interface : type = parameter, name="xmin";
+	public xmin : RealPort = new RealPort(10.0);
+	-- @ interface : type = parameter, name="xmax";
+	public xmax : RealPort = new RealPort(130.0);
+	-- @ interface : type = parameter, name="ymin";
+	public ymin : RealPort = new RealPort(10.0);
+	-- @ interface : type = parameter, name="ymax";
+	public ymax : RealPort = new RealPort(130.0);
+	-- @ interface : type = parameter, name="idNum";
+	public idNum : IntPort = new IntPort(1);
+	-- @ interface : type = parameter, name="xCam";
+	public xCam : RealPort = new RealPort(10.0);
+	-- @ interface : type = parameter, name="yCam";
+	public yCam : RealPort = new RealPort(10.0);
+	-- @ interface : type = parameter, name="dAltitude";
+	public dAltitude : RealPort = new RealPort(20.0);
+	-- @ interface : type = parameter, name="obstacleX";
+	public obstacleX : RealPort = new RealPort(20.0);
+	-- @ interface : type = parameter, name="obstacleY";
+	public obstacleY : RealPort = new RealPort(20.0);
+	-- @ interface : type = parameter, name="obstacleZ";
+	public obstacleZ : RealPort = new RealPort(20.0);
+	-- @ interface : type = parameter, name="obstacle2X";
+	public obstacle2X : RealPort = new RealPort(30.0);
+	-- @ interface : type = parameter, name="obstacle2Y";
+	public obstacle2Y : RealPort = new RealPort(30.0);
+	-- @ interface : type = parameter, name="obstacle2Z";
+	public obstacle2Z : RealPort = new RealPort(30.0);
+	-- @ interface : type = parameter, name="obstacle3X";
+	public obstacle3X : RealPort = new RealPort(40.0);
+	-- @ interface : type = parameter, name="obstacle3Y";
+	public obstacle3Y : RealPort = new RealPort(40.0);
+	-- @ interface : type = parameter, name="obstacle3Z";
+	public obstacle3Z : RealPort = new RealPort(40.0);
+	
+  
+end HardwareInterface
